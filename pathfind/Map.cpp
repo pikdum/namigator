@@ -594,8 +594,8 @@ const Tile* Map::GetTile(float x, float y) const
         math::Convert::WorldToTile({x, y, 0.f}, tileX, tileY);
     else
     {
-        tileX = (m_globalWmoOriginY - y) / MeshSettings::TileSize;
-        tileY = (m_globalWmoOriginX - x) / MeshSettings::TileSize;
+        tileX = static_cast<int>((m_globalWmoOriginY - y) / MeshSettings::TileSize);
+        tileY = static_cast<int>((m_globalWmoOriginX - x) / MeshSettings::TileSize);
     }
 
     auto const tile = m_tiles.find({tileX, tileY});
@@ -831,7 +831,7 @@ bool Map::FindHeight(const math::Vertex& source, float x, float y, float& z) con
     // use the source Z as an initial guess
     math::Convert::VertexToRecast({x, y, source.Z}, recastTarget);
 
-    dtPolyRef hit_path[100];
+    dtPolyRef hit_path[100] = {};
     dtRaycastHit hit;
     hit.path = hit_path;
     hit.maxPath = sizeof(hit_path) / sizeof(hit_path[0]);
