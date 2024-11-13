@@ -907,6 +907,23 @@ bool Map::ZoneAndArea(const math::Vertex& position, unsigned int& zone,
         area = adtArea;
     }
 
+    // if both queries failed, try a ray facing up instead
+    if (!rayResult && !adtResult)
+    {
+        math::Ray upRay {
+            {position.X, position.Y, position.Z},
+            {position.X, position.Y, tile->m_bounds.getMaximum().Z}};
+
+        if (RayCast(upRay, tiles, false, &localZone, &localArea))
+        {
+            zone = localZone;
+            area = localArea;
+            return true;
+        }
+
+        // if it fails, fall through to below
+    }
+
     assert(rayResult || adtResult);
 
     return rayResult || adtResult;
