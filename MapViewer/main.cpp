@@ -784,8 +784,18 @@ void SearchZValues()
     result << "Heights at (" << posX << ", " << posY << "):\n";
     for (auto const h : output)
     {
-        result << h << "\n";
-        gRenderer->AddSphere({posX, posY, h}, 0.75f);
+        const math::Vertex pos {posX, posY, h};
+        unsigned int zone, area;
+
+        result << h;
+
+        if (gNavMesh->ZoneAndArea(pos, zone, area))
+            result << " Zone: " << zone << " Area: " << area;
+        else
+            result << " ZoneAndArea failed";
+        result << "\n";
+
+        gRenderer->AddSphere(pos, 0.75f);
     }
 
     MessageBoxA(nullptr, result.str().c_str(), "Z Search Results", 0);
