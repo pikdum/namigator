@@ -106,6 +106,15 @@ PathfindResultType pathfind_find_heights(pathfind::Map* const map, float x, floa
                                          unsigned int* const amount_of_heights);
 
 /*
+    Queries whether liquid exists at `x`, `y` and returns its surface Z.
+
+    `out_has_liquid` is set to `1` if liquid was found, and `0` otherwise.
+*/
+PathfindResultType pathfind_query_liquid(pathfind::Map* const map, float x, float y,
+                                         float z, uint8_t* const out_has_liquid,
+                                         float* const out_surface_z);
+
+/*
     Calculates whether there is line of sight between `start_x`, `start_y`, `start_z`
     and `stop_x`, `stop_y`, `stop_z`.
 
@@ -129,4 +138,3 @@ PathfindResultType pathfind_find_random_point_around_circle(pathfind::Map* const
                                                             float* const random_z);
 
 } // extern "C"
-

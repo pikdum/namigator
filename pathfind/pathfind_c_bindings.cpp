@@ -278,6 +278,33 @@ PathfindResultType pathfind_find_heights(pathfind::Map* const map,
     }
 }
 
+PathfindResultType pathfind_query_liquid(pathfind::Map* const map,
+                                         float x,
+                                         float y,
+                                         float z,
+                                         uint8_t* const out_has_liquid,
+                                         float* const out_surface_z)
+{
+    try {
+        float surface_z = 0.f;
+        if (map->QueryLiquidSurface(x, y, z, surface_z)) {
+            *out_has_liquid = 1;
+            *out_surface_z = surface_z;
+        } else {
+            *out_has_liquid = 0;
+            *out_surface_z = 0.f;
+        }
+
+        return static_cast<PathfindResultType>(Result::SUCCESS);
+    }
+    catch (utility::exception& e) {
+        return static_cast<PathfindResultType>(e.ResultCode());
+    }
+    catch (...) {
+        return static_cast<PathfindResultType>(Result::UNKNOWN_EXCEPTION);
+    }
+}
+
 PathfindResultType pathfind_line_of_sight(pathfind::Map* map,
                                           float start_x, float start_y, float start_z,
                                           float stop_x, float stop_y, float stop_z,

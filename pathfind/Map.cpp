@@ -873,6 +873,90 @@ bool Map::FindHeights(float x, float y, std::vector<float>& output) const
     return !output.empty();
 }
 
+bool Map::QueryLiquidSurface(float x, float y, float zHint,
+                             float& outSurfaceZ) const
+{
+    auto const tile = GetTile(x, y);
+
+    if (!tile)
+        return false;
+
+    float recastPosition[3];
+    math::Convert::VertexToRecast({x, y, zHint}, recastPosition);
+
+    float queryCenter[3] {
+        recastPosition[0],
+        (tile->m_bounds.getMinimum().Z + tile->m_bounds.getMaximum().Z) / 2.f,
+        recastPosition[2],
+    };
+
+    const float halfTileHeight =
+        (tile->m_bounds.getMaximum().Z - tile->m_bounds.getMinimum().Z) / 2.f;
+    const float halfExtents[3] {
+        MeshSettings::CellSize,
+        (std::max)(halfTileHeight + MeshSettings::WalkableHeight, 1.f),
+        MeshSettings::CellSize,
+    };
+
+    dtQueryFilter liquidFilter;
+    liquidFilter.setIncludeFlags(static_cast<unsigned short>(PolyFlags::Liquid));
+    liquidFilter.setExcludeFlags(0);
+
+    constexpr int MaxLiquidPolys = 32;
+    dtPolyRef polys[MaxLiquidPolys];
+    int polyCount = 0;
+
+    auto const queryResult = m_navQuery.queryPolygons(
+        queryCenter, halfExtents, &liquidFilter, polys, &polyCount,
+        MaxLiquidPolys);
+    if (!(queryResult & DT_SUCCESS))
+        return false;
+
+    bool found = false;
+    float bestRecastY = 0.f;
+    float bestDistance = (std::numeric_limits<float>::max)();
+
+    for (int i = 0; i < polyCount; ++i)
+    {
+        unsigned short flags = 0;
+        if (!(m_navMesh.getPolyFlags(polys[i], &flags) & DT_SUCCESS))
+            continue;
+
+        if (!(flags & PolyFlags::Liquid))
+            continue;
+
+        float closest[3];
+        bool posOverPoly = false;
+        if (!(m_navQuery.closestPointOnPoly(polys[i], recastPosition, closest,
+                                            &posOverPoly) &
+              DT_SUCCESS) ||
+            !posOverPoly)
+            continue;
+
+        const float distance = fabs(closest[1] - recastPosition[1]);
+        if (!found || distance < bestDistance)
+        {
+            found = true;
+            bestRecastY = closest[1];
+            bestDistance = distance;
+        }
+    }
+
+    if (!found)
+        return false;
+
+    float recastSurface[3] {
+        recastPosition[0],
+        bestRecastY,
+        recastPosition[2],
+    };
+    math::Vertex wowSurface;
+    math::Convert::VertexToWow(recastSurface, wowSurface);
+    outSurfaceZ = wowSurface.Z;
+
+    return true;
+}
+
 bool Map::ZoneAndArea(const math::Vertex& position, unsigned int& zone,
                       unsigned int& area) const
 {

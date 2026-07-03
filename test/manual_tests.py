@@ -77,6 +77,15 @@ def test_use_data(nav_data):
 
     print('Z query tests succeeded')
 
+    azeroth.load_adt_at(-11300, 2000)
+
+    liquid_surface = azeroth.query_liquid_surface(-11300, 2000, 50)
+    assert liquid_surface is not None and approximate(liquid_surface, 0.148430, 0.01)
+
+    assert azeroth.query_liquid_surface(-11300, 1900, 50) is None
+
+    print('Liquid surface query tests succeeded')
+
     # This doorway in Deathknell is known to be problematic
     adt_x, adt_y = azeroth.load_adt_at(1926, 1548.88)
     path = azeroth.find_path(1942.09863, 1541.59216, 90.514, 1940.185, 1522.914, 88.229)
@@ -165,4 +174,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-

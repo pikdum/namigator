@@ -77,6 +77,11 @@ def test_pathfind(temp_dir):
 
 	print("Z value check succeeded")
 
+	if map_data.query_liquid_surface(x, y, expected_z_values[-1]) is not None:
+		raise Exception("Liquid query returned water for dry test point")
+
+	print("Dry liquid query check succeeded")
+
 	def compute_path_length(path):
 		result = 0
 		for i in range(1, len(path)):

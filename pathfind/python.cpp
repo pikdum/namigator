@@ -83,6 +83,16 @@ py::list python_query_heights(const pathfind::Map& map, float x, float y)
     return result;
 }
 
+py::object query_liquid_surface(const pathfind::Map& map, float x, float y,
+                                float z)
+{
+    float surfaceZ = 0.f;
+    if (!map.QueryLiquidSurface(x, y, z, surfaceZ))
+        return py::none();
+
+    return py::float_(surfaceZ);
+}
+
 
 bool los(const pathfind::Map& map, float start_x, float start_y, float start_z,
          float stop_x, float stop_y, float stop_z, bool doodads)
@@ -170,6 +180,13 @@ Returns a list of points if a path was found, otherwise an empty list.)del",
             "Finds all Z values for a given `x`, `y` coordinate.",
             py::arg("x"),
             py::arg("y")
+        )
+        .def("query_liquid_surface",
+            &query_liquid_surface,
+            "Finds the liquid surface Z for a given coordinate.",
+            py::arg("x"),
+            py::arg("y"),
+            py::arg("z")
         )
         .def("get_zone_and_area",
             &get_zone_and_area,

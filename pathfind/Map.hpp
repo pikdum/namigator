@@ -143,6 +143,9 @@ public:
     // remove it.  If someone needs it, could you please let me know?
     bool FindHeights(float x, float y, std::vector<float>& output) const;
 
+    bool QueryLiquidSurface(float x, float y, float zHint,
+                            float& outSurfaceZ) const;
+
     bool ZoneAndArea(const math::Vertex& position, unsigned int& zone,
                      unsigned int& area) const;
 
