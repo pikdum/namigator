@@ -57,3 +57,9 @@
 /*.ipch
 /cmake-build-debug
 /cmake-build-release
+# direnv
+/.direnv
+# local env (paths to client data); commit .env.example instead
+/.env
+# install prefix used when running smoke tests
+/install
