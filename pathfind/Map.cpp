@@ -638,7 +638,12 @@ bool Map::GetADTHeight(const Tile* tile, float x, float y, float& height,
     auto const quadX = static_cast<int>((northwestY - y) / quadWidth);
     auto const quadY = static_cast<int>((northwestX - x) / quadWidth);
 
-    assert(quadX < 8 && quadY < 8);
+    // positions at (or just past) a tile's south/east edge can map to quad
+    // index 8, or a negative index. report "no ADT height here" rather than
+    // indexing m_quadHoles/m_quadHeights out of bounds below (and, in an
+    // asserts-enabled build, aborting the process — this runs inside a NIF).
+    if (quadX < 0 || quadX >= 8 || quadY < 0 || quadY >= 8)
+        return false;
 
     // if there is an ADT hole here, do not consider ADT height
     if (tile->m_quadHoles[quadX][quadY])
