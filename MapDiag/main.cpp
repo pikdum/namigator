@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <string>
@@ -75,6 +76,12 @@ struct Options
     int top = 8;
     bool dumpTiles = false;
     bool loadAdts = true;
+    bool hasNear = false;   // restrict ADT loading to a point
+    bool hasNearZ = false;  // a Z was supplied -> probe the component there
+    double nearX = 0.0;
+    double nearY = 0.0;
+    double nearZ = 0.0;
+    double radius = 150.0;  // world units around the point to cover
 };
 
 const char* PolyFlagName(int bit)
@@ -110,7 +117,52 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     if (hasAdts)
     {
         std::printf("  type:            ADT-based\n");
-        if (opts.loadAdts)
+        if (!opts.loadAdts)
+        {
+            std::printf("  ADTs loaded:     skipped (--no-adts)\n");
+        }
+        else if (opts.hasNear)
+        {
+            // Convert the four corners of the [point +/- radius] box to ADT
+            // indices and load every existing ADT in that range. Going via the
+            // corners handles the world<->ADT axis swap/sign automatically.
+            int minAx = MeshSettings::Adts, maxAx = -1;
+            int minAy = MeshSettings::Adts, maxAy = -1;
+            for (int cx = 0; cx < 2; ++cx)
+                for (int cy = 0; cy < 2; ++cy)
+                {
+                    int ax, ay;
+                    math::Convert::WorldToAdt(
+                        {static_cast<float>(opts.nearX +
+                                            (cx ? opts.radius : -opts.radius)),
+                         static_cast<float>(opts.nearY +
+                                            (cy ? opts.radius : -opts.radius)),
+                         0.f},
+                        ax, ay);
+                    minAx = std::min(minAx, ax);
+                    maxAx = std::max(maxAx, ax);
+                    minAy = std::min(minAy, ay);
+                    maxAy = std::max(maxAy, ay);
+                }
+            int loaded = 0;
+            for (int ax = std::max(0, minAx);
+                 ax <= std::min(MeshSettings::Adts - 1, maxAx); ++ax)
+                for (int ay = std::max(0, minAy);
+                     ay <= std::min(MeshSettings::Adts - 1, maxAy); ++ay)
+                    if (map->HasADT(ax, ay) && map->LoadADT(ax, ay))
+                        ++loaded;
+            std::printf("  near:            (%.0f, %.0f) r=%.0f -> ADT x[%d..%d] "
+                        "y[%d..%d]\n",
+                        opts.nearX, opts.nearY, opts.radius, minAx, maxAx, minAy,
+                        maxAy);
+            std::printf("  ADTs loaded:     %d\n", loaded);
+            if (loaded == 0)
+            {
+                std::printf("  (no ADTs cover that point — nothing to analyze)\n");
+                return;
+            }
+        }
+        else
         {
             const auto start = std::chrono::steady_clock::now();
             const int loaded = map->LoadAllADTs();
@@ -119,10 +171,6 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
                                 .count();
             std::printf("  ADTs loaded:     %d (%lld ms)\n", loaded,
                         static_cast<long long>(ms));
-        }
-        else
-        {
-            std::printf("  ADTs loaded:     skipped (--no-adts)\n");
         }
     }
     else
@@ -355,6 +403,49 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
         }
     }
 
+    // Probe: which connected component does the --near point actually sit in?
+    // This is the "can a mob standing here reach the rest of the world" test.
+    if (opts.hasNear && opts.hasNearZ)
+    {
+        const dtNavMeshQuery& query = map->GetNavMeshQuery();
+        dtQueryFilter filter;  // default include/exclude == namigator's FindPath
+        const math::Vertex probe{static_cast<float>(opts.nearX),
+                                 static_cast<float>(opts.nearY),
+                                 static_cast<float>(opts.nearZ)};
+        float center[3];
+        math::Convert::VertexToRecast(probe, center);
+        const float extents[3] = {12.f, 40.f, 12.f};
+        dtPolyRef ref = 0;
+        query.findNearestPoly(center, extents, &filter, &ref, nullptr);
+        if (!ref)
+            std::printf("  probe point:     (%.0f,%.0f,%.0f) has NO navmesh "
+                        "within reach — unwalkable / ungenerated here\n",
+                        opts.nearX, opts.nearY, opts.nearZ);
+        else
+        {
+            const auto it = refToIdx.find(ref);
+            if (it == refToIdx.end())
+                std::printf("  probe point:     poly found but outside loaded "
+                            "tiles (widen --radius)\n");
+            else
+            {
+                const int root = dsu.Find(it->second);
+                int rank = 0;
+                for (int c = 0; c < static_cast<int>(comps.size()); ++c)
+                    if (comps[c].second == root)
+                    {
+                        rank = c;
+                        break;
+                    }
+                std::printf("  probe point:     in component #%d (%d polys = "
+                            "%.1f%% of loaded mesh)%s\n",
+                            rank + 1, compSize[root], 100.0 * compSize[root] / n,
+                            rank == 0 ? " — the main surface" : " — ISOLATED "
+                                                                "from main");
+            }
+        }
+    }
+
     // Heuristic verdict. Many tiny stray islands are normal on large maps, so
     // key off the largest component's coverage, not the raw component count.
     if (loadedTiles > 1 && crossTileLinks == 0)
@@ -395,6 +486,27 @@ int main(int argc, char** argv)
             opts.dumpTiles = true;
         else if (arg == "--no-adts")
             opts.loadAdts = false;
+        else if (arg.rfind("--near=", 0) == 0)
+        {
+            double v[3] = {0, 0, 0};
+            const int nv =
+                std::sscanf(arg.c_str() + 7, "%lf,%lf,%lf", &v[0], &v[1], &v[2]);
+            if (nv < 2)
+            {
+                std::fprintf(stderr, "bad --near (need X,Y[,Z])\n");
+                return 2;
+            }
+            opts.hasNear = true;
+            opts.nearX = v[0];
+            opts.nearY = v[1];
+            if (nv >= 3)
+            {
+                opts.hasNearZ = true;
+                opts.nearZ = v[2];
+            }
+        }
+        else if (arg.rfind("--radius=", 0) == 0)
+            opts.radius = std::atof(arg.c_str() + 9);
         else if (arg.rfind("--", 0) == 0)
         {
             std::fprintf(stderr, "unknown option: %s\n", arg.c_str());
@@ -410,7 +522,12 @@ int main(int argc, char** argv)
     {
         std::fprintf(stderr,
                      "usage: MapDiag <nav_data_dir> <MapName> [MapName...] "
-                     "[--top=N] [--tiles] [--no-adts]\n");
+                     "[--top=N] [--tiles] [--no-adts]\n"
+                     "                [--near=X,Y[,Z]] [--radius=R]\n"
+                     "  --near restricts ADT loading to a point (for spot-"
+                     "checking one cave on a continent);\n"
+                     "  a Z also reports which connected component that point "
+                     "sits in.\n");
         return 2;
     }
 
