@@ -335,8 +335,22 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     const double largestPct =
         100.0 * static_cast<double>(comps.front().first) / static_cast<double>(n);
 
+    math::Vertex meshLo = nodePos[0];
+    math::Vertex meshHi = nodePos[0];
+    for (const auto& p : nodePos)
+    {
+        meshLo.X = std::min(meshLo.X, p.X);
+        meshLo.Y = std::min(meshLo.Y, p.Y);
+        meshLo.Z = std::min(meshLo.Z, p.Z);
+        meshHi.X = std::max(meshHi.X, p.X);
+        meshHi.Y = std::max(meshHi.Y, p.Y);
+        meshHi.Z = std::max(meshHi.Z, p.Z);
+    }
+
     std::printf("  tiles loaded:    %d\n", loadedTiles);
     std::printf("  polygons:        %d  (offmesh %d)\n", n, offMeshPolys);
+    std::printf("  mesh bbox:       x[%.0f..%.0f] y[%.0f..%.0f] z[%.0f..%.0f]\n",
+                meshLo.X, meshHi.X, meshLo.Y, meshHi.Y, meshLo.Z, meshHi.Z);
     std::printf("  flags:           ");
     for (int b = 0; b < 5; ++b)
         std::printf("%s=%lld ", PolyFlagName(b), flagCounts[b]);
