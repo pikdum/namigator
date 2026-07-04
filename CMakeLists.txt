@@ -71,6 +71,7 @@ add_subdirectory(pathfind)
 
 # namigator executables
 add_subdirectory(MapBuilder)
+add_subdirectory(MapDiag)
 
 if(NAMIGATOR_INSTALL_TESTS)
     add_subdirectory(test)
