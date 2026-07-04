@@ -30,7 +30,7 @@ struct MeshSettings
     static constexpr float WalkableSlope =
         50.f; // maximum walkable slope, in degrees
     static constexpr float WalkableClimb =
-        1.f; // maximum 'step' height for which slope is ignored (yards)
+        2.f; // maximum 'step' height for which slope is ignored (yards)
     static constexpr float DetailSampleDistance =
         3.f; // heightfield detail mesh sample distance (yards)
     static constexpr float DetailSampleMaxError =
