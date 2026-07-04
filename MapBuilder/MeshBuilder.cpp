@@ -464,17 +464,20 @@ MeshBuilder::MeshBuilder(const std::filesystem::path& outputPath,
 
     if (auto const wmo = m_map->GetGlobalWmoInstance())
     {
-        auto const tileWidth = static_cast<int>(
-            ::ceilf((wmo->Bounds.MaxCorner.X - wmo->Bounds.MinCorner.X) /
-                    MeshSettings::TileSize));
-        auto const tileHeight = static_cast<int>(
+        // tileX steps along world Y and tileY steps along world X (see the
+        // westStart/northStart math in BuildAndSerializeWMOTile and Map::GetTile
+        // on the query side), so each loop bound must use the matching extent.
+        auto const tilesAlongY = static_cast<int>(
             ::ceilf((wmo->Bounds.MaxCorner.Y - wmo->Bounds.MinCorner.Y) /
+                    MeshSettings::TileSize));
+        auto const tilesAlongX = static_cast<int>(
+            ::ceilf((wmo->Bounds.MaxCorner.X - wmo->Bounds.MinCorner.X) /
                     MeshSettings::TileSize));
 
         m_globalWMO = std::make_unique<meshfiles::GlobalWMO>();
 
-        for (auto tileY = 0; tileY < tileHeight; ++tileY)
-            for (auto tileX = 0; tileX < tileWidth; ++tileX)
+        for (auto tileY = 0; tileY < tilesAlongX; ++tileY)
+            for (auto tileX = 0; tileX < tilesAlongY; ++tileX)
                 m_pendingTiles.push_back({tileX, tileY});
 
         wmo->BuildTriangles(m_globalWMOVertices, m_globalWMOIndices);
