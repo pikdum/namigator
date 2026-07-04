@@ -31,9 +31,14 @@ struct WmoPlacement
 
         if (UniqueId == 0xFFFFFFFF)
         {
-            minCorner = {Bounds.MinCorner.Z, Bounds.MinCorner.X,
+            // The global-WMO transform (GetTransformMatrix) places geometry via
+            // a 180-degree Z rotation, i.e. worldX = -raw.Z, worldY = -raw.X,
+            // worldZ = raw.Y. The tile grid is laid out from these bounds, so
+            // they must match that mapping (negation included) or the grid ends
+            // up mirrored from the geometry and only the overlap gets meshed.
+            minCorner = {-Bounds.MaxCorner.Z, -Bounds.MaxCorner.X,
                          Bounds.MinCorner.Y};
-            maxCorner = {Bounds.MaxCorner.Z, Bounds.MaxCorner.Y,
+            maxCorner = {-Bounds.MinCorner.Z, -Bounds.MinCorner.X,
                          Bounds.MaxCorner.Y};
         }
         else
