@@ -82,6 +82,8 @@ struct Options
     double nearY = 0.0;
     double nearZ = 0.0;
     double radius = 150.0;  // world units around the point to cover
+    bool hasPath = false;   // reproduce an actual FindPath(start, end)
+    double pathPts[6] = {0, 0, 0, 0, 0, 0};
 };
 
 const char* PolyFlagName(int bit)
@@ -460,6 +462,78 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
         }
     }
 
+    // Reproduce an actual FindPath(start, end) exactly as the server does
+    // (same 5yd findNearestPoly extents), and report which endpoint fails.
+    if (opts.hasPath)
+    {
+        const dtNavMeshQuery& query = map->GetNavMeshQuery();
+        dtQueryFilter filter;
+        const float ext[3] = {5.f, 5.f, 5.f};  // matches pathfind::Map::FindPath
+        auto locate = [&](double x, double y, double z, std::string& desc) -> int
+        {
+            const math::Vertex v{static_cast<float>(x), static_cast<float>(y),
+                                 static_cast<float>(z)};
+            float c[3];
+            math::Convert::VertexToRecast(v, c);
+            dtPolyRef r = 0;
+            query.findNearestPoly(c, ext, &filter, &r, nullptr);
+            if (!r)
+            {
+                desc = "OFF-MESH (>5yd)";
+                return -1;
+            }
+            const auto it = refToIdx.find(r);
+            const int root = it == refToIdx.end() ? -1 : dsu.Find(it->second);
+            int rank = -1;
+            for (int i = 0; i < static_cast<int>(comps.size()); ++i)
+                if (comps[i].second == root)
+                {
+                    rank = i;
+                    break;
+                }
+            desc = "comp #" + std::to_string(rank + 1);
+            return rank;
+        };
+        std::string sd, ed;
+        const int sr = locate(opts.pathPts[0], opts.pathPts[1], opts.pathPts[2], sd);
+        const int er = locate(opts.pathPts[3], opts.pathPts[4], opts.pathPts[5], ed);
+        const math::Vertex s{static_cast<float>(opts.pathPts[0]),
+                             static_cast<float>(opts.pathPts[1]),
+                             static_cast<float>(opts.pathPts[2])};
+        const math::Vertex e{static_cast<float>(opts.pathPts[3]),
+                             static_cast<float>(opts.pathPts[4]),
+                             static_cast<float>(opts.pathPts[5])};
+        std::vector<math::Vertex> out;
+        const bool ok = map->FindPath(s, e, out);
+        std::printf("  path probe:      start %s, end %s -> FindPath %s (%d pts)\n",
+                    sd.c_str(), ed.c_str(), ok ? "OK" : "FAILED",
+                    static_cast<int>(out.size()));
+
+        // Replicate FindPath's polygon search to see WHY it fell short.
+        float rs[3], re[3];
+        math::Convert::VertexToRecast(s, rs);
+        math::Convert::VertexToRecast(e, re);
+        dtPolyRef sp = 0, ep = 0;
+        query.findNearestPoly(rs, ext, &filter, &sp, nullptr);
+        query.findNearestPoly(re, ext, &filter, &ep, nullptr);
+        if (sp && ep)
+        {
+            dtPolyRef polys[4096];
+            int npolys = 0;
+            const dtStatus st = query.findPath(sp, ep, rs, re, &filter, polys,
+                                               &npolys, 4096);
+            std::printf("      findPath: polys=%d%s%s%s%s%s\n", npolys,
+                        (st & DT_SUCCESS) ? " SUCCESS" : "",
+                        (st & DT_FAILURE) ? " FAILURE" : "",
+                        (st & DT_PARTIAL_RESULT) ? " PARTIAL" : "",
+                        (st & DT_OUT_OF_NODES) ? " OUT_OF_NODES" : "",
+                        (st & DT_BUFFER_TOO_SMALL) ? " BUFFER_TOO_SMALL" : "");
+        }
+        if (!ok && sr >= 0 && er >= 0 && sr != er)
+            std::printf("                   endpoints are in different "
+                        "components (no route between them)\n");
+    }
+
     // Heuristic verdict. Many tiny stray islands are normal on large maps, so
     // key off the largest component's coverage, not the raw component count.
     if (loadedTiles > 1 && crossTileLinks == 0)
@@ -521,6 +595,17 @@ int main(int argc, char** argv)
         }
         else if (arg.rfind("--radius=", 0) == 0)
             opts.radius = std::atof(arg.c_str() + 9);
+        else if (arg.rfind("--path=", 0) == 0)
+        {
+            double* p = opts.pathPts;
+            if (std::sscanf(arg.c_str() + 7, "%lf,%lf,%lf,%lf,%lf,%lf", &p[0],
+                            &p[1], &p[2], &p[3], &p[4], &p[5]) != 6)
+            {
+                std::fprintf(stderr, "bad --path (need sx,sy,sz,ex,ey,ez)\n");
+                return 2;
+            }
+            opts.hasPath = true;
+        }
         else if (arg.rfind("--", 0) == 0)
         {
             std::fprintf(stderr, "unknown option: %s\n", arg.c_str());
