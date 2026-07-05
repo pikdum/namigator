@@ -595,11 +595,17 @@ bool Map::FindPath(const math::Vertex& start, const math::Vertex& end,
     auto const endTile =
         GetTile(output[pathLength - 1].X, output[pathLength - 1].Y);
 
-    // if for some reason we fail, fail hard!
-    return !!endTile &&
-           FindNextZ(endTile, output[pathLength - 1].X,
-                     output[pathLength - 1].Y, output[pathLength - 1].Z, true,
-                     output[pathLength - 1].Z);
+    // Best-effort refinement: a complete path is already in hand, so refine the
+    // destination's floor Z when we can, but never discard the whole path if
+    // the refinement fails. GetTile/FindNextZ have global-WMO edge cases (the
+    // final straight-path point can land just outside a loaded tile), and a mob
+    // that can't chase because of a sub-yard Z touch-up is far worse than a
+    // destination Z that is off by up to DetailSampleMaxError.
+    if (endTile)
+        FindNextZ(endTile, output[pathLength - 1].X, output[pathLength - 1].Y,
+                  output[pathLength - 1].Z, true, output[pathLength - 1].Z);
+
+    return true;
 }
 
 const Tile* Map::GetTile(float x, float y) const
