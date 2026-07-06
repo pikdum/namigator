@@ -98,6 +98,11 @@ Map::Map(const std::filesystem::path& dataPath, const std::string& mapName)
     : m_dataPath(dataPath), m_bvhLoader(dataPath), m_mapName(mapName),
       m_globalWmoOriginX(0.f), m_globalWmoOriginY(0.f)
 {
+    // steep surfaces (terrain and WMO faces beyond MeshSettings::WalkableSlope)
+    // are kept in the mesh but must not be traversed: without this exclusion,
+    // paths climb cliff and cave-wall faces and mobs appear to walk in the air
+    m_queryFilter.setExcludeFlags(PolyFlags::Steep);
+
     utility::BinaryStream in(m_dataPath / (mapName + ".map"));
 
     std::uint32_t magic;

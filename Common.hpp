@@ -28,9 +28,9 @@ struct MeshSettings
     static constexpr float WalkableRadius =
         0.3f; // narrowest allowable hallway in world units (yards)
     static constexpr float WalkableSlope =
-        50.f; // maximum walkable slope, in degrees
+        60.f; // maximum walkable slope, in degrees (matches client movement limits)
     static constexpr float WalkableClimb =
-        2.f; // maximum 'step' height for which slope is ignored (yards)
+        1.f; // maximum 'step' height for which slope is ignored (yards)
     static constexpr float DetailSampleDistance =
         3.f; // heightfield detail mesh sample distance (yards)
     static constexpr float DetailSampleMaxError =

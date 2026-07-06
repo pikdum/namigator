@@ -113,8 +113,11 @@ bool TransformAndRasterize(rcContext& ctx, rcHeightfield& heightField,
 
     std::vector<unsigned char> areas(indices.size() / 3, areaFlags);
 
-    // if these triangles are ADT, mark steep
-    if (areaFlags & PolyFlags::Ground)
+    // if these triangles are ADT or WMO, mark steep.  WMO liquid is exempt:
+    // a liquid surface is never a steep barrier, and Liquid|Steep would
+    // confuse flag-based filtering.
+    if ((areaFlags & PolyFlags::Ground) ||
+        ((areaFlags & PolyFlags::Wmo) && !(areaFlags & PolyFlags::Liquid)))
     {
         rcMarkWalkableTriangles(
             &ctx, slope, &rastVert[0], static_cast<int>(vertices.size()),
@@ -137,9 +140,48 @@ bool TransformAndRasterize(rcContext& ctx, rcHeightfield& heightField,
             &ctx, slope, &rastVert[0], static_cast<int>(vertices.size()),
             &indices[0], static_cast<int>(indices.size() / 3), &areas[0]);
 
-    return rcRasterizeTriangles(
-        &ctx, &rastVert[0], static_cast<int>(vertices.size()), &indices[0],
-        &areas[0], static_cast<int>(indices.size() / 3), heightField, -1);
+    // when overlapping spans merge, rcAddSpan (with no flag-merge threshold)
+    // keeps the LAST rasterized triangle's area.  rasterize steep triangles
+    // first and walkable ones second, so that where a steep face (a wall
+    // base, ramp trim, railing) cuts through a walkable surface the merged
+    // span stays walkable — otherwise the arbitrary triangle order lets
+    // steep faces poison walkways into impassable Steep strips.
+    std::vector<int> steepIndices, walkableIndices;
+    steepIndices.reserve(indices.size());
+    walkableIndices.reserve(indices.size());
+    std::vector<unsigned char> steepAreas, walkableAreas;
+    steepAreas.reserve(areas.size());
+    walkableAreas.reserve(areas.size());
+
+    for (size_t i = 0; i < areas.size(); ++i)
+    {
+        auto& idx =
+            (areas[i] & PolyFlags::Steep) ? steepIndices : walkableIndices;
+        auto& ar = (areas[i] & PolyFlags::Steep) ? steepAreas : walkableAreas;
+
+        idx.push_back(indices[i * 3 + 0]);
+        idx.push_back(indices[i * 3 + 1]);
+        idx.push_back(indices[i * 3 + 2]);
+        ar.push_back(areas[i]);
+    }
+
+    if (!steepIndices.empty() &&
+        !rcRasterizeTriangles(&ctx, &rastVert[0],
+                              static_cast<int>(vertices.size()),
+                              &steepIndices[0], &steepAreas[0],
+                              static_cast<int>(steepAreas.size()), heightField,
+                              -1))
+        return false;
+
+    if (!walkableIndices.empty() &&
+        !rcRasterizeTriangles(&ctx, &rastVert[0],
+                              static_cast<int>(vertices.size()),
+                              &walkableIndices[0], &walkableAreas[0],
+                              static_cast<int>(walkableAreas.size()),
+                              heightField, -1))
+        return false;
+
+    return true;
 }
 
 void FilterGroundBeneathLiquid(rcHeightfield& solid)
@@ -342,9 +384,12 @@ bool SerializeMeshTile(rcContext& ctx, const rcConfig& config, int tileX,
     SmartCompactHeightFieldPtr chf(rcAllocCompactHeightfield(),
                                    rcFreeCompactHeightfield);
 
+    // the climb here bounds the vertical step allowed between neighboring
+    // columns (0.3yd apart).  it was historically INT_MAX, which let paths
+    // chain arbitrarily large steps up steep faces the slope test had already
+    // rejected — mobs "climbing air" up cave walls and onto cave roofs.
     if (!rcBuildCompactHeightfield(&ctx, config.walkableHeight,
-                                   (std::numeric_limits<int>::max)(), solid,
-                                   *chf))
+                                   config.walkableClimb, solid, *chf))
         return false;
 
     if (!rcBuildDistanceField(&ctx, *chf))
