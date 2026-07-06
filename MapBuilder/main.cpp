@@ -88,12 +88,10 @@ int main(int argc, char* argv[])
                 threads = std::stoi(argv[++i]);
             else if (arg == "-l" || arg == "--loglevel")
                 logLevel = std::stoi(argv[++i]);
-#ifdef _DEBUG
             else if (arg == "-x" || arg == "--adtX")
                 adtX = std::stoi(argv[++i]);
             else if (arg == "-y" || arg == "--adtY")
                 adtY = std::stoi(argv[++i]);
-#endif
             else
                 throw std::invalid_argument("Unrecognized argument " + arg);
         }
