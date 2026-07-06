@@ -260,6 +260,10 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
                 if (it == refToIdx.end())
                     continue;  // neighbor lives in an unloaded tile
                 const int b = it->second;
+                // pathfind::Map's query filter excludes Steep polys, so a
+                // link through one is not real reachability
+                if ((nodeFlags[a] | nodeFlags[b]) & PolyFlags::Steep)
+                    continue;
                 if (nodeTile[a] != nodeTile[b])
                 {
                     ++crossTileLinks;
@@ -276,15 +280,20 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
 
     // Tally polygon types and flags.
     int offMeshPolys = 0;
+    int steepPolys = 0;
     long long flagCounts[8] = {0};
     for (int i = 0; i < n; ++i)
     {
         if (nodeType[i] == DT_POLYTYPE_OFFMESH_CONNECTION)
             ++offMeshPolys;
+        if (nodeFlags[i] & PolyFlags::Steep)
+            ++steepPolys;
         for (int b = 0; b < 8; ++b)
             if (nodeFlags[i] & (1 << b))
                 ++flagCounts[b];
     }
+    // connectivity is measured over the polys a path may actually use
+    const int nWalkable = n - steepPolys;
 
     // Component sizes, spanned tiles, and WoW-space bounding box.
     std::unordered_map<int, int> compSize;
@@ -292,6 +301,8 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     std::unordered_map<int, math::BoundingBox> compBox;
     for (int i = 0; i < n; ++i)
     {
+        if (nodeFlags[i] & PolyFlags::Steep)
+            continue;
         const int root = dsu.Find(i);
         ++compSize[root];
         compTiles[root].insert(nodeTile[i]);
@@ -334,8 +345,15 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
             ++isolatedTiles;
     }
 
-    const double largestPct =
-        100.0 * static_cast<double>(comps.front().first) / static_cast<double>(n);
+    if (comps.empty())
+    {
+        std::printf("  polygons:        %d, but all steep (no walkable mesh)\n",
+                    n);
+        return;
+    }
+
+    const double largestPct = 100.0 * static_cast<double>(comps.front().first) /
+                              static_cast<double>(nWalkable);
 
     math::Vertex meshLo = nodePos[0];
     math::Vertex meshHi = nodePos[0];
@@ -350,7 +368,9 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     }
 
     std::printf("  tiles loaded:    %d\n", loadedTiles);
-    std::printf("  polygons:        %d  (offmesh %d)\n", n, offMeshPolys);
+    std::printf("  polygons:        %d  (offmesh %d, steep %d — steep are "
+                "query-excluded)\n",
+                n, offMeshPolys, steepPolys);
     std::printf("  mesh bbox:       x[%.0f..%.0f] y[%.0f..%.0f] z[%.0f..%.0f]\n",
                 meshLo.X, meshHi.X, meshLo.Y, meshHi.Y, meshLo.Z, meshHi.Z);
     std::printf("  flags:           ");
@@ -369,7 +389,7 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     {
         const int size = comps[rank].first;
         const int root = comps[rank].second;
-        const double pct = 100.0 * size / n;
+        const double pct = 100.0 * size / nWalkable;
         const math::BoundingBox& b = compBox[root];
         std::printf("    #%-2d %8d polys = %5.1f%%  %3d tiles  z[%.0f..%.0f]\n",
                     rank + 1, size, pct,
@@ -394,7 +414,7 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     int overlapping = 0;
     for (int c = 1; c < static_cast<int>(comps.size()); ++c)
     {
-        if (100.0 * comps[c].first / n < 2.0)
+        if (100.0 * comps[c].first / nWalkable < 2.0)
             break;  // only consider substantial regions
         ++bigRegions;
         if (xyOverlap(box0, compBox[comps[c].second]))
@@ -424,7 +444,8 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     if (opts.hasNear && opts.hasNearZ)
     {
         const dtNavMeshQuery& query = map->GetNavMeshQuery();
-        dtQueryFilter filter;  // default include/exclude == namigator's FindPath
+        dtQueryFilter filter;  // matches namigator's FindPath filter
+        filter.setExcludeFlags(PolyFlags::Steep);
         const math::Vertex probe{static_cast<float>(opts.nearX),
                                  static_cast<float>(opts.nearY),
                                  static_cast<float>(opts.nearZ)};
@@ -455,7 +476,8 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
                     }
                 std::printf("  probe point:     in component #%d (%d polys = "
                             "%.1f%% of loaded mesh)%s\n",
-                            rank + 1, compSize[root], 100.0 * compSize[root] / n,
+                            rank + 1, compSize[root],
+                            100.0 * compSize[root] / nWalkable,
                             rank == 0 ? " — the main surface" : " — ISOLATED "
                                                                 "from main");
             }
@@ -468,6 +490,7 @@ void Analyze(const std::string& dataDir, const std::string& mapName,
     {
         const dtNavMeshQuery& query = map->GetNavMeshQuery();
         dtQueryFilter filter;
+        filter.setExcludeFlags(PolyFlags::Steep);
         const float ext[3] = {5.f, 5.f, 5.f};  // matches pathfind::Map::FindPath
         auto locate = [&](double x, double y, double z, std::string& desc) -> int
         {
