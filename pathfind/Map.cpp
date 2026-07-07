@@ -586,16 +586,14 @@ bool Map::FindPath(const math::Vertex& start, const math::Vertex& end,
     for (auto i = 0; i < pathLength; ++i)
         math::Convert::VertexToWow(&pathBuffer[i * 3], output[i]);
 
-    // for the last point, let us refine the z.  we know that the value
-    // returned from Detour will be within MeshSettings::DetailSampleMaxError
-    // yards above or below.  to begin with, we shift that error range upwards
-    // so we know that we are above the true value.
-    output[pathLength - 1].Z += MeshSettings::DetailSampleMaxError;
-
-    // nudge it up by the smallest possible amount to make sure we are OVER
-    // the correct value and not exactly at it
-    output[pathLength - 1].Z = std::nextafter(output[pathLength - 1].Z,
-                                              output[pathLength - 1].Z + 1.f);
+    // for the last point, let us refine the z.  its value comes from the
+    // coarse polygon mesh, which in practice deviates from the real surface
+    // by up to around a yard (more than DetailSampleMaxError, which only
+    // bounds the detail mesh).  start the downward ray comfortably above the
+    // coarse value so an underestimate cannot put the ray start beneath the
+    // surface, where it would miss.
+    auto const coarseZ = output[pathLength - 1].Z;
+    constexpr float coarseZError = 1.f;
 
     auto const endTile =
         GetTile(output[pathLength - 1].X, output[pathLength - 1].Y);
@@ -605,10 +603,20 @@ bool Map::FindPath(const math::Vertex& start, const math::Vertex& end,
     // the refinement fails. GetTile/FindNextZ have global-WMO edge cases (the
     // final straight-path point can land just outside a loaded tile), and a mob
     // that can't chase because of a sub-yard Z touch-up is far worse than a
-    // destination Z that is off by up to DetailSampleMaxError.
-    if (endTile)
+    // destination Z that is off by a fraction of a yard.
+    //
+    // Accept the refined value only when it stays within the coarse error
+    // bound of the Detour Z.  A larger move means the query snapped to a
+    // DIFFERENT mesh layer — e.g. when the ray misses through a seam in a
+    // cave's floor geometry, FindNextZ falls back to the raw ADT height,
+    // which inside a cave is the terrain far above; mobs would then walk
+    // straight up into the air toward the cave roof.
+    float refinedZ;
+    if (endTile &&
         FindNextZ(endTile, output[pathLength - 1].X, output[pathLength - 1].Y,
-                  output[pathLength - 1].Z, true, output[pathLength - 1].Z);
+                  coarseZ + coarseZError, true, refinedZ) &&
+        std::fabs(refinedZ - coarseZ) < 1.5f * coarseZError)
+        output[pathLength - 1].Z = refinedZ;
 
     return true;
 }
